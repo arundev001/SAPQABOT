@@ -1,0 +1,515 @@
+import streamlit as st
+import requests
+from streamlit_agraph import agraph, Node, Edge, Config
+from collections import deque
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+LAMBDA_URL = "https://nmpfj3dvfqhb4aqq3eoqy45ljm0gnyvh.lambda-url.us-east-1.on.aws/"
+
+GRAPH_JSON_URL = (
+    "https://graphdbarun.s3.us-east-1.amazonaws.com/sap_graph_d3.json"
+)
+
+
+# ============================================================
+# PAGE CONFIG
+# ============================================================
+
+st.set_page_config(
+    page_title="SAP Q&A",
+    page_icon="💬",
+    layout="wide"
+)
+
+st.title("💬 SAP Data Q&A")
+st.caption("Ask questions about your SAP data and explore table relationships.")
+
+
+# ============================================================
+# CHAT HISTORY
+# ============================================================
+
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+for role, msg in st.session_state.history:
+    with st.chat_message(role):
+        st.markdown(msg)
+
+
+# ============================================================
+# CHAT INPUT
+# ============================================================
+
+question = st.chat_input(
+    "Ask a question about your SAP data..."
+)
+
+if question:
+
+    st.session_state.history.append(("user", question))
+
+    with st.chat_message("user"):
+        st.markdown(question)
+
+    with st.chat_message("assistant"):
+
+        with st.spinner("Thinking..."):
+
+            try:
+
+                resp = requests.post(
+                    LAMBDA_URL,
+                    json={"question": question},
+                    timeout=100,
+                )
+
+                resp.raise_for_status()
+
+                data = resp.json()
+
+                answer = (
+                    data.get("answer")
+                    or data.get("error")
+                    or "No response received."
+                )
+
+            except requests.exceptions.Timeout:
+                answer = (
+                    "The chatbot request timed out. "
+                    "Please try again."
+                )
+
+            except requests.exceptions.RequestException as e:
+                answer = f"Error reaching the chatbot: {e}"
+
+            except ValueError:
+                answer = "The chatbot returned an invalid response."
+
+            except Exception as e:
+                answer = f"Unexpected error: {e}"
+
+        st.markdown(answer)
+
+    st.session_state.history.append(
+        ("assistant", answer)
+    )
+
+
+# ============================================================
+# RELATIONSHIP GRAPH
+# ============================================================
+
+st.divider()
+
+st.header("🔗 SAP Table Relationship Explorer")
+
+st.caption(
+    "Select a SAP table to explore its relationships "
+    "instead of displaying the entire graph."
+)
+
+
+# ============================================================
+# LOAD GRAPH DATA
+# ============================================================
+
+@st.cache_data(ttl=3600)
+def load_graph_data():
+
+    try:
+
+        resp = requests.get(
+            GRAPH_JSON_URL,
+            timeout=30
+        )
+
+        resp.raise_for_status()
+
+        return resp.json()
+
+    except Exception as e:
+
+        st.error(
+            f"Could not load graph data: {e}"
+        )
+
+        return None
+
+
+graph_data = load_graph_data()
+
+
+# ============================================================
+# GRAPH FUNCTIONS
+# ============================================================
+
+def build_adjacency(links):
+    """
+    Build an undirected adjacency list so relationships
+    can be explored in either direction.
+    """
+
+    adjacency = {}
+
+    for edge in links:
+
+        source = edge["source"]
+        target = edge["target"]
+
+        adjacency.setdefault(source, set()).add(target)
+        adjacency.setdefault(target, set()).add(source)
+
+    return adjacency
+
+
+def get_connected_tables(start_table, adjacency, depth):
+    """
+    Return tables within the requested relationship depth
+    using breadth-first search.
+    """
+
+    visited = {start_table}
+
+    queue = deque([
+        (start_table, 0)
+    ])
+
+    while queue:
+
+        current, current_depth = queue.popleft()
+
+        if current_depth >= depth:
+            continue
+
+        for neighbour in adjacency.get(current, []):
+
+            if neighbour not in visited:
+
+                visited.add(neighbour)
+
+                queue.append(
+                    (
+                        neighbour,
+                        current_depth + 1
+                    )
+                )
+
+    return visited
+
+
+# ============================================================
+# DISPLAY GRAPH
+# ============================================================
+
+if graph_data:
+
+    raw_nodes = graph_data.get("nodes", [])
+    raw_links = graph_data.get("links", [])
+
+    table_ids = sorted(
+        [
+            node["id"]
+            for node in raw_nodes
+            if "id" in node
+        ]
+    )
+
+    adjacency = build_adjacency(raw_links)
+
+
+    # ========================================================
+    # TABLE SELECTION
+    # ========================================================
+
+    col1, col2 = st.columns([3, 1])
+
+    with col1:
+
+        selected_table = st.selectbox(
+            "Select SAP table",
+            options=table_ids,
+            index=None,
+            placeholder="Search for a table, e.g. T001W"
+        )
+
+    with col2:
+
+        depth = st.selectbox(
+            "Relationship depth",
+            options=[1, 2],
+            index=0,
+            format_func=lambda x: f"{x} hop" if x == 1 else f"{x} hops"
+        )
+
+
+    # ========================================================
+    # SHOW GRAPH AFTER TABLE SELECTED
+    # ========================================================
+
+    if selected_table:
+
+        connected_tables = get_connected_tables(
+            selected_table,
+            adjacency,
+            depth
+        )
+
+        # Prevent extremely large 2-hop graphs
+        MAX_NODES = 100
+
+        graph_limited = False
+
+        if len(connected_tables) > MAX_NODES:
+
+            connected_tables = set(
+                list(connected_tables)[:MAX_NODES]
+            )
+
+            connected_tables.add(selected_table)
+
+            graph_limited = True
+
+
+        # ====================================================
+        # FILTER NODES
+        # ====================================================
+
+        filtered_raw_nodes = [
+            node
+            for node in raw_nodes
+            if node["id"] in connected_tables
+        ]
+
+
+        # ====================================================
+        # FILTER EDGES
+        # ====================================================
+
+        filtered_links = [
+            edge
+            for edge in raw_links
+            if (
+                edge["source"] in connected_tables
+                and edge["target"] in connected_tables
+            )
+        ]
+
+
+        # ====================================================
+        # INFORMATION
+        # ====================================================
+
+        metric1, metric2, metric3 = st.columns(3)
+
+        metric1.metric(
+            "Selected Table",
+            selected_table
+        )
+
+        metric2.metric(
+            "Tables Displayed",
+            len(filtered_raw_nodes)
+        )
+
+        metric3.metric(
+            "Relationships",
+            len(filtered_links)
+        )
+
+
+        if graph_limited:
+
+            st.warning(
+                "This table has a very large relationship network. "
+                "The visualization has been limited to 100 tables."
+            )
+
+
+        # ====================================================
+        # CREATE AGRAPH NODES
+        # ====================================================
+
+        nodes = []
+
+        for node in filtered_raw_nodes:
+
+            node_id = node["id"]
+
+            # Selected table
+            if node_id == selected_table:
+
+                nodes.append(
+                    Node(
+                        id=node_id,
+                        label=node_id,
+                        size=35,
+                        color="#FF9800"
+                    )
+                )
+
+            # Existing highlighted/group nodes
+            elif node.get("group") == 1:
+
+                nodes.append(
+                    Node(
+                        id=node_id,
+                        label=node_id,
+                        size=22,
+                        color="#4CAF50"
+                    )
+                )
+
+            # Normal connected tables
+            else:
+
+                nodes.append(
+                    Node(
+                        id=node_id,
+                        label=node_id,
+                        size=18,
+                        color="#D3D3D3"
+                    )
+                )
+
+
+        # ====================================================
+        # CREATE EDGES
+        # ====================================================
+
+        edges = []
+
+        for edge in filtered_links:
+
+            field_name = edge.get(
+                "via_field",
+                ""
+            )
+
+            edges.append(
+                Edge(
+                    source=edge["source"],
+                    target=edge["target"],
+                    label=field_name
+                )
+            )
+
+
+        # ====================================================
+        # GRAPH CONFIG
+        # ====================================================
+
+        config = Config(
+            width="100%",
+            height=650,
+            directed=True,
+            physics=True,
+            hierarchical=False,
+            nodeHighlightBehavior=True,
+            highlightColor="#F7A7A6",
+            collapsible=False
+        )
+
+
+        # ====================================================
+        # RENDER GRAPH
+        # ====================================================
+
+        st.subheader(
+            f"Relationships for {selected_table}"
+        )
+
+        selected_node = agraph(
+            nodes=nodes,
+            edges=edges,
+            config=config
+        )
+
+
+        # ====================================================
+        # GRAPH LEGEND
+        # ====================================================
+
+        st.markdown(
+            """
+            **Graph legend**
+
+            🟠 **Orange** — Selected table  
+            🟢 **Green** — Highlighted SAP table  
+            ⚪ **Grey** — Connected table
+            """
+        )
+
+
+        # ====================================================
+        # DIRECT RELATIONSHIPS TABLE
+        # ====================================================
+
+        st.subheader(
+            f"Direct Relationships for {selected_table}"
+        )
+
+        direct_relationships = []
+
+        for edge in raw_links:
+
+            if edge["source"] == selected_table:
+
+                direct_relationships.append(
+                    {
+                        "From": edge["source"],
+                        "To": edge["target"],
+                        "Field": edge.get(
+                            "via_field",
+                            ""
+                        )
+                    }
+                )
+
+            elif edge["target"] == selected_table:
+
+                direct_relationships.append(
+                    {
+                        "From": edge["source"],
+                        "To": edge["target"],
+                        "Field": edge.get(
+                            "via_field",
+                            ""
+                        )
+                    }
+                )
+
+
+        if direct_relationships:
+
+            st.dataframe(
+                direct_relationships,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        else:
+
+            st.info(
+                "No direct relationships were found "
+                "for this table."
+            )
+
+
+    else:
+
+        st.info(
+            "👆 Search for and select a SAP table "
+            "to display its relationship graph."
+        )
+
+
+else:
+
+    st.warning(
+        "Graph data is currently unavailable."
+    )
