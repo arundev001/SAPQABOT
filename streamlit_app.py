@@ -5,7 +5,7 @@ from collections import deque
 from streamlit_agraph import agraph, Node, Edge, Config
 
 # ============================================================
-# CONFIGURATION & SECRETS
+# CONFIGURATION
 # ============================================================
 
 LAMBDA_URL = st.secrets.get(
@@ -16,90 +16,209 @@ GRAPH_JSON_URL = st.secrets.get(
     "GRAPH_JSON_URL",
     "https://graphdbarun.s3.us-east-1.amazonaws.com/sap_graph_d3.json"
 )
-
-# ============================================================
-# SAP STANDARD TABLE DESCRIPTIONS (ENRICHMENT LOOKUP)
-# ============================================================
-
-SAP_TABLE_DESC = {
-    "EKKO": "Purchasing Document Header",
-    "EKPO": "Purchasing Document Item",
-    "MARA": "General Material Data",
-    "MARC": "Plant Data for Material",
-    "MARD": "Storage Location Data for Material",
-    "MAKT": "Material Descriptions",
-    "MBEW": "Material Valuation",
-    "VBAK": "Sales Document Header Data",
-    "VBAP": "Sales Document Item Data",
-    "VBRK": "Billing Document Header",
-    "VBRP": "Billing Document Item",
-    "LIKP": "SD Document Delivery Header",
-    "LIPS": "SD Document Delivery Item",
-    "BKPF": "Accounting Document Header",
-    "BSEG": "Accounting Document Segment",
-    "KNA1": "Customer Master General Data",
-    "LFA1": "Vendor Master General Data",
-    "T001": "Company Codes",
-    "T001W": "Plants / Branches",
-    "T001L": "Storage Locations",
-    "T024": "Purchasing Groups",
-    "T024E": "Purchasing Organizations",
-    "TVKO": "Sales Organizations",
-    "EINA": "Purchase Info Record General Data",
-    "EINE": "Purchase Info Record Purchasing Data",
-    "EBAN": "Purchase Requisition",
-    "RESB": "Reservation / Dependent Requirements",
-    "MKPF": "Header Material Document",
-    "MSEG": "Document Segment Material",
-}
-
-def get_table_label(table_id):
-    desc = SAP_TABLE_DESC.get(table_id.upper())
-    if desc:
-        return f"{table_id} ({desc})"
-    return table_id
-
-# ============================================================
-# PAGE CONFIG & ENTERPRISE STYLING
-# ============================================================
-
-st.set_page_config(
-    page_title="SAP Data & Relationship Explorer",
-    page_icon="💬",
-    layout="wide",
-    initial_sidebar_state="expanded"
+TABLE_DESC_URL = st.secrets.get(
+    "TABLE_DESC_URL",
+    "https://graphdbarun.s3.us-east-1.amazonaws.com/table_descriptions.json"
 )
 
-st.markdown(
-    """
-    <style>
-        .block-container {
-            padding-top: 1.5rem;
-            padding-bottom: 2rem;
-        }
-        div[data-testid="stMetric"] {
-            background-color: rgba(128, 128, 128, 0.05);
-            border: 1px solid rgba(128, 128, 128, 0.15);
-            border-radius: 8px;
-            padding: 12px;
-            text-align: center;
-        }
-        .sap-badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-weight: 600;
-            font-size: 0.85rem;
-            margin-right: 6px;
-        }
-        .sap-badge-orange { background-color: #FF9800; color: white; }
-        .sap-badge-green { background-color: #4CAF50; color: white; }
-        .sap-badge-blue { background-color: #42A5F5; color: white; }
-        .sap-badge-grey { background-color: #9E9E9E; color: white; }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+# ============================================================
+# CUSTOM CSS FOR ENTERPRISE STYLE
+# ============================================================
+
+st.markdown("""
+<style>
+    /* Global reset & typography */
+    .main {
+        padding: 0rem 1rem;
+    }
+    .block-container {
+        padding-top: 0.5rem;
+        padding-bottom: 0rem;
+    }
+    
+    /* Enterprise header */
+    .app-header {
+        background: linear-gradient(135deg, #1a2332 0%, #2c3e50 100%);
+        padding: 1.5rem 2rem;
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        color: white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .app-header h1 {
+        margin: 0;
+        font-size: 1.8rem;
+        font-weight: 600;
+        letter-spacing: -0.5px;
+    }
+    .app-header p {
+        margin: 0.3rem 0 0 0;
+        opacity: 0.85;
+        font-size: 0.95rem;
+    }
+    
+    /* Sidebar styling - enterprise dark */
+    section[data-testid="stSidebar"] {
+        background-color: #1a2332 !important;
+        padding-top: 1rem;
+    }
+    section[data-testid="stSidebar"] .stMarkdown {
+        color: #e8edf2;
+    }
+    section[data-testid="stSidebar"] h1, 
+    section[data-testid="stSidebar"] h2, 
+    section[data-testid="stSidebar"] h3 {
+        color: #ffffff !important;
+        font-weight: 500;
+        letter-spacing: 0.3px;
+    }
+    section[data-testid="stSidebar"] hr {
+        border-color: #3d4c5e;
+        margin: 1rem 0;
+    }
+    section[data-testid="stSidebar"] .stSelectbox label,
+    section[data-testid="stSidebar"] .stSlider label {
+        color: #a0b4c7 !important;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    /* Cards for metrics */
+    .metric-card {
+        background: white;
+        border-radius: 8px;
+        padding: 1rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        border: 1px solid #e8ecf0;
+        text-align: center;
+        transition: all 0.2s;
+    }
+    .metric-card:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+        transform: translateY(-2px);
+    }
+    .metric-value {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #1a2332;
+        margin: 0.2rem 0;
+    }
+    .metric-label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #6b7a8b;
+    }
+    
+    /* Tab styling - enterprise */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.5rem;
+        background-color: #f5f7fa;
+        padding: 0.4rem 0.4rem 0 0.4rem;
+        border-radius: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 6px;
+        padding: 0.5rem 1.2rem;
+        font-weight: 500;
+        color: #5a6a7a;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #ffffff !important;
+        color: #1a2332 !important;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    
+    /* Search box styling */
+    .search-box {
+        background: white;
+        border: 1px solid #e0e5ea;
+        border-radius: 6px;
+        padding: 0.4rem 0.8rem;
+        margin-bottom: 0.5rem;
+    }
+    .search-box input {
+        border: none;
+        outline: none;
+        width: 100%;
+        font-size: 0.9rem;
+        padding: 0.3rem 0;
+    }
+    
+    /* Quick starter chips */
+    .starter-chip {
+        background: #f0f3f7;
+        border: 1px solid #e0e5ea;
+        border-radius: 20px;
+        padding: 0.4rem 1rem;
+        font-size: 0.8rem;
+        color: #1a2332;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: inline-block;
+        margin: 0.2rem 0.2rem;
+    }
+    .starter-chip:hover {
+        background: #e0e8f0;
+        border-color: #4a90d9;
+        transform: translateY(-1px);
+    }
+    
+    /* Graph container */
+    .graph-container {
+        background: white;
+        border-radius: 8px;
+        border: 1px solid #e8ecf0;
+        padding: 1rem;
+        margin-top: 1rem;
+    }
+    
+    /* Legend with badges */
+    .badge {
+        display: inline-block;
+        padding: 0.2rem 0.7rem;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        margin: 0.1rem 0.2rem;
+    }
+    .badge-orange { background: #FF9800; color: white; }
+    .badge-green { background: #4CAF50; color: white; }
+    .badge-blue { background: #42A5F5; color: white; }
+    .badge-grey { background: #9E9E9E; color: white; }
+    
+    /* Info panel styling */
+    .info-panel {
+        background: #f8fafc;
+        border-radius: 6px;
+        padding: 0.8rem 1rem;
+        border-left: 3px solid #4a90d9;
+        margin: 0.5rem 0;
+    }
+    
+    /* Relationship table container */
+    .table-container {
+        background: white;
+        border-radius: 8px;
+        border: 1px solid #e8ecf0;
+        padding: 0.5rem;
+        overflow: auto;
+        max-height: 400px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================
+# HEADER
+# ============================================================
+
+st.markdown("""
+<div class="app-header">
+    <h1>🏢 SAP Data & Relationship Explorer</h1>
+    <p>Intelligent Q&A Assistant & Interactive Table Network Visualizer for SAP S/4HANA</p>
+</div>
+""", unsafe_allow_html=True)
 
 # ============================================================
 # SESSION STATE INITIALISATION
@@ -107,32 +226,37 @@ st.markdown(
 
 if "history" not in st.session_state:
     st.session_state.history = []
-
 if "selected_table" not in st.session_state:
     st.session_state.selected_table = None
-
 if "depth" not in st.session_state:
     st.session_state.depth = 1
-
 if "max_nodes" not in st.session_state:
     st.session_state.max_nodes = 50
-
 if "physics_enabled" not in st.session_state:
     st.session_state.physics_enabled = True
-
 if "pending_question" not in st.session_state:
     st.session_state.pending_question = None
+if "pending_table_pivot" not in st.session_state:
+    st.session_state.pending_table_pivot = None
+if "search_query" not in st.session_state:
+    st.session_state.search_query = ""
 
 # ============================================================
-# HEADER
+# LOAD DATA
 # ============================================================
 
-st.title("💬 SAP Data & Relationship Explorer")
-st.caption("Intelligent Q&A Assistant and Interactive SAP Table Network Visualizer.")
-
-# ============================================================
-# DATA CACHING & LOAD
-# ============================================================
+@st.cache_data(ttl=3600)
+def load_table_descriptions():
+    descriptions = {}
+    try:
+        resp = requests.get(TABLE_DESC_URL, timeout=10)
+        if resp.status_code == 200:
+            remote_desc = resp.json()
+            if isinstance(remote_desc, dict):
+                descriptions.update(remote_desc)
+    except Exception:
+        pass
+    return descriptions
 
 @st.cache_data(ttl=3600)
 def load_graph_data():
@@ -141,17 +265,22 @@ def load_graph_data():
         response.raise_for_status()
         data = response.json()
         if "nodes" not in data or "links" not in data:
-            st.error("Graph JSON format invalid: Must contain 'nodes' and 'links'.")
             return None
         return data
     except Exception as e:
-        st.error(f"Could not load SAP graph dataset: {e}")
+        st.error(f"Failed to load graph data: {e}")
         return None
 
+SAP_TABLE_DESC = load_table_descriptions()
 graph_data = load_graph_data()
+
 if not graph_data:
-    st.warning("⚠️ SAP relationship graph data is currently unavailable.")
+    st.warning("⚠️ Graph data unavailable. Please check your connection.")
     st.stop()
+
+# ============================================================
+# DATA PROCESSING
+# ============================================================
 
 raw_nodes = graph_data.get("nodes", [])
 raw_links = graph_data.get("links", [])
@@ -173,87 +302,166 @@ for edge in raw_links:
         "via_field": edge.get("via_field", "")
     })
 
-if st.session_state.selected_table not in table_ids:
-    st.session_state.selected_table = table_ids[0] if table_ids else None
-
 def extract_sap_tables(text, valid_tables):
     words = set(re.findall(r'\b[A-Z0-9_]{3,8}\b', text.upper()))
     found = [w for w in words if w in valid_tables]
     return sorted(found)
 
+def get_table_label(table_id):
+    desc = SAP_TABLE_DESC.get(table_id.upper())
+    if desc:
+        return f"{table_id} ({desc})"
+    return table_id
+
 # ============================================================
-# SIDEBAR CONTROLS & UTILITIES
+# SIDEBAR - ENTERPRISE NAVIGATION
 # ============================================================
 
 with st.sidebar:
-    st.header("⚙️ Explorer Settings")
+    st.markdown("### ⚙️ Navigation")
     st.markdown("---")
     
-    st.subheader("System Status")
-    st.success("🟢 Graph Data Connected")
-    st.info(f"📊 Total Tables: **{len(table_ids)}**")
-    st.info(f"🔗 Total Edges: **{len(directed_edges)}**")
+    # System status as cards in sidebar
+    st.markdown("#### System Status")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Tables", len(table_ids))
+    with col2:
+        st.metric("Relationships", len(directed_edges))
     
     st.markdown("---")
-    if st.button("🗑️ Clear Chat History", use_container_width=True):
+    
+    # Graph controls
+    st.markdown("#### Graph Settings")
+    
+    # Quick search for tables
+    st.session_state.search_query = st.text_input(
+        "🔍 Quick Table Search",
+        placeholder="Type table name...",
+        value=st.session_state.search_query
+    )
+    
+    if st.session_state.search_query:
+        filtered_tables = [t for t in table_ids if st.session_state.search_query.upper() in t.upper()]
+        if filtered_tables:
+            with st.expander(f"Results ({len(filtered_tables)})"):
+                for t in filtered_tables[:10]:
+                    desc = SAP_TABLE_DESC.get(t, "")
+                    display = f"{t} - {desc}" if desc else t
+                    if st.button(display, key=f"quick_{t}"):
+                        st.session_state.selected_table = t
+                        st.rerun()
+    
+    st.markdown("---")
+    
+    # Depth and limit controls
+    st.session_state.depth = st.selectbox(
+        "🔄 Relationship Depth",
+        options=[1, 2, 3],
+        format_func=lambda v: f"{v} Hop{'s' if v > 1 else ''}",
+        key="depth_sidebar"
+    )
+    
+    st.session_state.max_nodes = st.slider(
+        "📊 Max Nodes",
+        min_value=25,
+        max_value=150,
+        value=st.session_state.max_nodes,
+        step=25,
+        key="max_nodes_sidebar"
+    )
+    
+    st.session_state.physics_enabled = st.toggle(
+        "🎯 Enable Physics",
+        value=st.session_state.physics_enabled,
+        key="physics_sidebar"
+    )
+    
+    st.markdown("---")
+    
+    # Quick actions
+    st.markdown("#### Actions")
+    if st.button("🗑️ Clear Chat", use_container_width=True):
         st.session_state.history = []
-        st.toast("Chat history cleared!", icon="🧹")
+        st.toast("Chat cleared!")
         st.rerun()
+    
+    st.markdown("---")
+    
+    # Legend
+    st.markdown("#### Legend")
+    st.markdown("""
+    <span class="badge badge-orange">Selected</span>
+    <span class="badge badge-green">1-Hop</span>
+    <span class="badge badge-blue">2-Hop</span>
+    <span class="badge badge-grey">3-Hop</span>
+    """, unsafe_allow_html=True)
 
 # ============================================================
-# TABS
+# MAIN CONTENT - TABS
 # ============================================================
 
-tab_chat, tab_graph = st.tabs(["💬 Chat Assistant", "🔗 Relationship Explorer"])
+tab_chat, tab_graph, tab_browse = st.tabs([
+    "💬 Chat Assistant", 
+    "🔗 Relationship Explorer",
+    "📋 Table Browser"
+])
 
 # ============================================================
 # TAB 1: CHAT ASSISTANT
 # ============================================================
 
 with tab_chat:
-    st.subheader("🤖 Ask Questions About SAP Data & Schema")
-    st.caption("Enter natural language questions to query SAP records or schema knowledge.")
-
-    st.markdown("💡 **Quick Starter Prompts:**")
-    prompt_cols = st.columns(4)
+    st.markdown("### 🤖 Ask Questions About SAP Data")
+    
+    # Quick starter prompts as chips
+    st.markdown("#### Quick Start Prompts")
     starters = [
-        ("🛒 Purchase Orders", "Which SAP tables link Purchase Order headers to items and vendor data?"),
-        ("📦 Material Master", "Explain the relationship between MARA, MARC, and MARD tables in SAP."),
-        ("💰 Sales Documents", "How are Sales Document headers (VBAK) connected to items (VBAP) and billing?"),
-        ("🏦 Financial Accounting", "What are the main tables for Financial Accounting (FI) header and line items?")
+        ("🛒 Purchase Orders", "Which SAP tables link Purchase Order headers to line items?"),
+        ("📦 Material Master", "Explain how MARA, MARC, and MARD are linked."),
+        ("💰 Sales & Billing", "How are Sales Documents and Billing Documents connected?"),
+        ("🏦 Finance", "What are the core tables for Accounting documents?"),
+        ("🏭 Plant & Valuation", "How does Plant relate to Valuation Areas?"),
+        ("🚚 Logistics", "Which tables store Delivery Headers and Items?")
     ]
+    
+    cols = st.columns(3)
     for idx, (label, prompt_text) in enumerate(starters):
-        with prompt_cols[idx]:
-            if st.button(label, key=f"starter_{idx}", use_container_width=True):
+        with cols[idx % 3]:
+            if st.button(label, key=f"start_{idx}", use_container_width=True):
                 st.session_state.pending_question = prompt_text
-
+    
     st.markdown("---")
-
+    
+    # Chat history
     for role, message in st.session_state.history:
         with st.chat_message(role):
             st.markdown(message)
             if role == "assistant":
                 referenced = extract_sap_tables(message, set(table_ids))
                 if referenced:
-                    st.caption("🔍 **Referenced SAP Tables (Click to explore graph):**")
-                    btn_cols = st.columns(min(len(referenced), 6))
-                    for i, tbl in enumerate(referenced[:6]):
+                    st.caption("🔍 **Referenced Tables:**")
+                    btn_cols = st.columns(min(len(referenced), 4))
+                    for i, tbl in enumerate(referenced[:4]):
                         with btn_cols[i]:
-                            if st.button(f"🔗 {tbl}", key=f"hist_btn_{tbl}_{i}_{hash(message)}"):
+                            if st.button(f"🔗 {tbl}", key=f"hist_{tbl}_{i}"):
                                 st.session_state.selected_table = tbl
-                                st.toast(f"Pivoted Graph to **{tbl}**! Switch to '🔗 Relationship Explorer' tab.", icon="🚀")
-
-    chat_input_val = st.chat_input("Ask a question about your SAP data...")
-    question = chat_input_val or st.session_state.pending_question
-
+                                st.toast(f"Switched to {tbl} in Graph Explorer")
+                                st.rerun()
+    
+    # Chat input
+    chat_input = st.chat_input("Ask a question about your SAP data...")
+    question = chat_input or st.session_state.pending_question
+    
     if question:
         st.session_state.pending_question = None
         st.session_state.history.append(("user", question))
+        
         with st.chat_message("user"):
             st.markdown(question)
-
+        
         with st.chat_message("assistant"):
-            with st.spinner("Analyzing SAP schema and querying data..."):
+            with st.spinner("Analyzing SAP schema..."):
                 try:
                     response = requests.post(
                         LAMBDA_URL,
@@ -262,65 +470,52 @@ with tab_chat:
                     )
                     response.raise_for_status()
                     data = response.json()
-                    answer = data.get("answer") or data.get("error") or "No response received."
-                except requests.exceptions.Timeout:
-                    answer = "⏳ Request timed out. Please try again."
-                except requests.exceptions.RequestException as e:
-                    answer = f"⚠️ Error reaching backend chatbot: {e}"
-                except ValueError:
-                    answer = "⚠️ Received invalid JSON response from server."
+                    answer = data.get("answer") or "No response received."
                 except Exception as e:
-                    answer = f"⚠️ Unexpected error occurred: {e}"
-
+                    answer = f"⚠️ Error: {e}"
+            
             st.markdown(answer)
             st.session_state.history.append(("assistant", answer))
-
+            
             referenced_tables = extract_sap_tables(answer, set(table_ids))
             if referenced_tables:
-                st.caption("🔍 **Explore referenced SAP tables in Graph Explorer:**")
-                cols = st.columns(min(len(referenced_tables), 6))
-                for idx, tbl in enumerate(referenced_tables[:6]):
-                    with cols[idx]:
-                        if st.button(f"🔗 {tbl}", key=f"new_btn_{tbl}_{idx}"):
+                st.caption("🔍 **Explore these tables:**")
+                btn_cols = st.columns(min(len(referenced_tables), 4))
+                for i, tbl in enumerate(referenced_tables[:4]):
+                    with btn_cols[i]:
+                        if st.button(f"🔗 {tbl}", key=f"new_{tbl}_{i}"):
                             st.session_state.selected_table = tbl
-                            st.toast(f"Selected table set to **{tbl}**. Switch to '🔗 Relationship Explorer' tab!", icon="🚀")
+                            st.toast(f"Switched to {tbl}")
+                            st.rerun()
 
 # ============================================================
 # TAB 2: RELATIONSHIP EXPLORER
 # ============================================================
 
 with tab_graph:
-    st.subheader("🔗 SAP Table Relationship Network")
-    st.caption("Interactive multi-hop network traversal for SAP data architecture.")
-
-    col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+    st.markdown("### 🔗 SAP Table Relationship Network")
+    
+    # Table selector
+    selected = st.selectbox(
+        "**Select a Table**",
+        options=table_ids,
+        format_func=get_table_label,
+        key="selected_table"
+    )
+    
+    # Metrics row
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        selected = st.selectbox(
-            "Search / Select SAP Table",
-            options=table_ids,
-            format_func=get_table_label,
-            key="selected_table"
-        )
-
-    with col2:
-        depth = st.selectbox(
-            "Relationship Depth",
-            options=[1, 2, 3],
-            format_func=lambda v: f"{v} Hop" if v == 1 else f"{v} Hops",
-            key="depth"
-        )
-
-    with col3:
-        max_nodes = st.selectbox(
-            "Maximum Tables",
-            options=[25, 50, 75, 100],
-            key="max_nodes"
-        )
-
-    with col4:
-        physics_on = st.toggle("Enable Physics", value=st.session_state.physics_enabled, key="physics_enabled")
-
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Selected Table</div>
+            <div class="metric-value">{selected}</div>
+            <div style="font-size:0.8rem;color:#6b7a8b;">{SAP_TABLE_DESC.get(selected, '')}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Get connected tables
     def get_connected_tables(start, adj, max_depth):
         visited = {start: 0}
         queue = deque([(start, 0)])
@@ -334,35 +529,58 @@ with tab_graph:
                     visited[neighbor] = nd
                     queue.append((neighbor, nd))
         return visited
-
-    table_depths = get_connected_tables(selected, adjacency, depth)
-
+    
+    table_depths = get_connected_tables(selected, adjacency, st.session_state.depth)
     sorted_tables = sorted(table_depths.items(), key=lambda x: (x[1], x[0]))
-    limited = len(sorted_tables) > max_nodes
+    
+    limited = len(sorted_tables) > st.session_state.max_nodes
     if limited:
-        sorted_tables = sorted_tables[:max_nodes]
-
+        sorted_tables = sorted_tables[:st.session_state.max_nodes]
+    
     visible_tables = {t for t, _ in sorted_tables}
     visible_tables.add(selected)
     visible_depths = {t: table_depths.get(t, 0) for t in visible_tables}
-
+    
     filtered_edges = [
         e for e in directed_edges
         if e["source"] in visible_tables and e["target"] in visible_tables
     ]
-
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Selected Root Table", selected, delta=SAP_TABLE_DESC.get(selected, ""))
-    m2.metric("Connected Tables", len(visible_tables))
-    m3.metric("Relationships Found", len(filtered_edges))
-    m4.metric("Traversal Depth", f"{depth} Hop" if depth == 1 else f"{depth} Hops")
-
+    
+    with col2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Connected Tables</div>
+            <div class="metric-value">{len(visible_tables)}</div>
+            <div style="font-size:0.8rem;color:#6b7a8b;">Depth: {st.session_state.depth} hop{'s' if st.session_state.depth > 1 else ''}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Relationships</div>
+            <div class="metric-value">{len(filtered_edges)}</div>
+            <div style="font-size:0.8rem;color:#6b7a8b;">Direct & Indirect</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Max Nodes</div>
+            <div class="metric-value">{st.session_state.max_nodes}</div>
+            <div style="font-size:0.8rem;color:#6b7a8b;">
+                {'⚠️ Limited' if limited else '✓ All displayed'}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
     if limited:
-        st.warning(
-            f"⚠️ **{selected}** has a large network ({len(table_depths)} total reachable tables). "
-            f"Display limited to **{max_nodes}** tables. Increase 'Maximum Tables' setting to expand."
-        )
-
+        st.warning(f"⚠️ Display limited to {st.session_state.max_nodes} nodes. Increase 'Max Nodes' in sidebar.")
+    
+    # Graph
+    st.markdown('<div class="graph-container">', unsafe_allow_html=True)
+    
     nodes = []
     for table in sorted(visible_tables):
         table_depth = visible_depths.get(table, 0)
@@ -371,19 +589,19 @@ with tab_graph:
         
         if table == selected:
             color = "#FF9800"
-            size = 35
+            size = 38
         elif table_depth == 1:
             color = "#4CAF50"
-            size = 26
+            size = 28
         elif table_depth == 2:
             color = "#42A5F5"
-            size = 20
+            size = 22
         else:
             color = "#9E9E9E"
-            size = 16
-
+            size = 18
+        
         nodes.append(Node(id=table, label=node_label, size=size, color=color))
-
+    
     edges = []
     for edge in filtered_edges:
         edges.append(Edge(
@@ -391,100 +609,98 @@ with tab_graph:
             target=edge["target"],
             label=edge["via_field"]
         ))
-
+    
     config = Config(
         width="100%",
-        height=650,
+        height=600,
         directed=True,
-        physics=physics_on,
+        physics=st.session_state.physics_enabled,
         hierarchical=False,
         nodeHighlightBehavior=True,
         highlightColor="#FFD54F",
         collapsible=False,
-        physicsConfig={
-            "enabled": physics_on,
-            "solver": "forceAtlas2Based",
-            "forceAtlas2Based": {
-                "gravitationalConstant": -60,
-                "centralGravity": 0.01,
-                "springLength": 150,
-                "springConstant": 0.08,
-                "damping": 0.4,
-                "avoidOverlap": 1,
-            },
-            "stabilization": {
-                "enabled": True,
-                "iterations": 120,
-                "updateInterval": 25,
-            },
-        },
     )
-
-    st.markdown("💡 *Tip: Drag nodes to move them. **Click any node** to pivot the graph around that table!*")
-
+    
+    st.markdown("💡 **Tip:** Click any node to pivot the graph around that table. Drag nodes to rearrange.")
+    
     clicked_node = agraph(nodes=nodes, edges=edges, config=config)
-
+    
     if clicked_node and clicked_node in table_ids and clicked_node != st.session_state.selected_table:
-        st.session_state.selected_table = clicked_node
-        st.toast(f"Pivoting network graph to **{clicked_node}**...", icon="🔄")
+        st.session_state.pending_table_pivot = clicked_node
         st.rerun()
-
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Relationship summary
     st.markdown("---")
-
-    st.markdown(
-        """
-        **Graph Legend:** &nbsp;
-        <span class="sap-badge sap-badge-orange">🟠 Selected Root</span>
-        <span class="sap-badge sap-badge-green">🟢 1-Hop Direct</span>
-        <span class="sap-badge sap-badge-blue">🔵 2-Hop Indirect</span>
-        <span class="sap-badge sap-badge-grey">⚪ 3-Hop Extended</span>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("📋 Relationship Summary")
-
+    st.markdown("### 📋 Relationship Details")
+    
     if filtered_edges:
         rel_data = []
         for e in filtered_edges:
-            direction = "Outgoing ➡️" if e["source"] == selected else "Incoming ⬅️" if e["target"] == selected else "Indirect 🔗"
+            direction = "Outgoing" if e["source"] == selected else "Incoming" if e["target"] == selected else "Indirect"
             rel_data.append({
-                "From Table": e["source"],
-                "From Description": SAP_TABLE_DESC.get(e["source"], ""),
-                "To Table": e["target"],
-                "To Description": SAP_TABLE_DESC.get(e["target"], ""),
-                "Via Foreign Key Field": e["via_field"],
-                "Relationship Type": direction
+                "From": e["source"],
+                "From Desc": SAP_TABLE_DESC.get(e["source"], ""),
+                "To": e["target"],
+                "To Desc": SAP_TABLE_DESC.get(e["target"], ""),
+                "Via Field": e["via_field"],
+                "Direction": direction
             })
-
-        search_query = st.text_input("🔍 Search relationships by table or field name:", "")
-        if search_query:
-            q = search_query.strip().lower()
-            rel_data = [
-                row for row in rel_data
-                if q in row["From Table"].lower() or
-                   q in row["To Table"].lower() or
-                   q in row["Via Foreign Key Field"].lower() or
-                   q in row["From Description"].lower() or
-                   q in row["To Description"].lower()
-            ]
-
+        
+        search = st.text_input("🔍 Search relationships", placeholder="Filter by table or field...")
+        if search:
+            search_lower = search.lower()
+            rel_data = [r for r in rel_data if 
+                       search_lower in r["From"].lower() or 
+                       search_lower in r["To"].lower() or 
+                       search_lower in r["Via Field"].lower() or
+                       search_lower in r["From Desc"].lower() or
+                       search_lower in r["To Desc"].lower()]
+        
         st.dataframe(rel_data, use_container_width=True, hide_index=True)
     else:
-        st.info("No relationship edges found for the selected view.")
+        st.info("No relationships found in the filtered view.")
 
-    direct_neighbors = sorted(adjacency.get(selected, set()))
-    with st.expander(f"📌 Direct Neighbors of {selected} ({len(direct_neighbors)} tables)"):
-        if direct_neighbors:
-            cols = st.columns(4)
-            for idx, neighbor in enumerate(direct_neighbors):
-                desc = SAP_TABLE_DESC.get(neighbor, "")
-                with cols[idx % 4]:
-                    if st.button(f"🔗 {neighbor}", key=f"nb_btn_{neighbor}"):
-                        st.session_state.selected_table = neighbor
-                        st.rerun()
-                    if desc:
-                        st.caption(desc)
-        else:
-            st.write("No direct neighbors recorded.")
+# ============================================================
+# TAB 3: TABLE BROWSER
+# ============================================================
+
+with tab_browse:
+    st.markdown("### 📋 SAP Table Browser")
+    st.caption("Browse all SAP tables with descriptions and search functionality")
+    
+    # Search
+    browse_search = st.text_input("🔍 Search tables by ID or description", placeholder="Type table name...")
+    
+    # Get all tables with descriptions
+    table_list = []
+    for tid in table_ids:
+        desc = SAP_TABLE_DESC.get(tid, "")
+        table_list.append({
+            "Table ID": tid,
+            "Description": desc,
+            "Module": "Unknown"  # You could add module detection based on prefix
+        })
+    
+    # Filter
+    if browse_search:
+        search_lower = browse_search.lower()
+        table_list = [t for t in table_list if 
+                     search_lower in t["Table ID"].lower() or 
+                     search_lower in t["Description"].lower()]
+    
+    # Display
+    st.dataframe(table_list, use_container_width=True, hide_index=True)
+    
+    # Quick explore
+    st.markdown("#### Quick Explore")
+    if table_list:
+        selected_browse = st.selectbox(
+            "Select a table to explore in graph",
+            options=[t["Table ID"] for t in table_list[:50]]
+        )
+        if st.button("Explore in Graph", use_container_width=True):
+            st.session_state.selected_table = selected_browse
+            st.toast(f"Switched to {selected_browse} in Graph Explorer")
+            st.rerun()
